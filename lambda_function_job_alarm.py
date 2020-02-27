@@ -6,21 +6,37 @@ import urllib.request, urllib.error
 def lambda_handler(event, context):
 
 	msg = json.loads(event['Records'][0]['Sns']['Message'])
+	detail = msg['detail']
 
 	attachments = [
 		{
-			'color': 'good' if (msg['NewStateValue']=='OK') else 'danger',
-			'title': msg['AlarmDescription'],
-			'text': msg['StateChangeTime']+'(UTC)',
+			'color': 'danger',
+			'title': detail['statusReason'],
+			'text': msg['time']+'(UTC)',
 			'fields': [
 				{
-					'title': 'ステータス',
-					'value': '{old}->{new}'.format(old=msg['OldStateValue'],new=msg['NewStateValue']),
+					'title': 'jobQueue',
+					'value': detail['jobQueue'],
 					'short': False,
 				},
 				{
-					'title': '理由',
-					'value': '```'+msg['NewStateReason']+'```',
+					'title': 'jobName',
+					'value': detail['jobName'],
+					'short': False,
+				},
+				{
+					'title': 'jobDef',
+					'value': detail['jobDefinition'],
+					'short': False,
+				},
+				{
+					'title': 'command',
+					'value': '```'+str(detail['container']['command'])+'```',
+					'short': False,
+				},
+				{
+					'title': 'reason',
+					'value': '```'+detail['container']['reason']+'```',
 					'short': False
 				},
 			],
@@ -28,13 +44,13 @@ def lambda_handler(event, context):
 	];
 
 	SLACK_ENDPOINT = os.environ.get('SLACK_ENDPOINT', '')
-	SLACK_CHANNEL  = os.environ.get('SLACK_CHANNEL', '#general')
+	SLACK_CHANNEL  = os.environ.get('SLACK_CHANNEL', '')
 	SLACK_USERNAME = os.environ.get('SLACK_USERNAME', 'lambda')
 	SLACK_EMOJI    = os.environ.get('SLACK_EMOJI', ':majikayo:')
 
 	slack(SLACK_ENDPOINT, SLACK_CHANNEL , {'attachments':attachments,'username':SLACK_USERNAME,'icon_emoji':SLACK_EMOJI});
 
-	return []
+	return
 
 def slack(url, channel, opt=None):
 	payload = {
