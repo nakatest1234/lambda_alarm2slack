@@ -25,18 +25,19 @@ def process(Message):
 	if (msg.get('source')=='aws.batch'):
 		print('process: aws.batch')
 		attachments = get_attachments_batch(msg)
+		chatwork_msg = get_attachments_batch_cw(msg)
 	elif ('AlarmName' in msg):
 		print('process: alarm')
 		attachments = get_attachments_alarm(msg)
+		chatwork_msg = get_attachments_alarm_cw(msg)
 	else:
 		return
 
-	SLACK_ENDPOINT = os.environ.get('SLACK_ENDPOINT', '')
-	SLACK_CHANNEL  = os.environ.get('SLACK_CHANNEL', '#general')
-	SLACK_USERNAME = os.environ.get('SLACK_USERNAME', 'lambda')
-	SLACK_EMOJI    = os.environ.get('SLACK_EMOJI', ':majikayo:')
+	# slack
+	slack({'attachments':attachments});
 
-	slack(SLACK_ENDPOINT, SLACK_CHANNEL , {'attachments':attachments,'username':SLACK_USERNAME,'icon_emoji':SLACK_EMOJI});
+	# chatwork
+	chatwork(chatwork_msg)
 
 	return
 
@@ -54,7 +55,7 @@ def get_attachments_alarm(msg):
 					'short': True,
 				},
 				{
-					'title': 'ステータス',
+					'title': 'state',
 					'value': '{old}->{new}'.format(old=msg['OldStateValue'],new=msg['NewStateValue']),
 					'short': True,
 				},
@@ -114,16 +115,56 @@ def get_attachments_batch(msg):
 	return attachments
 
 
-# slack
-def slack(url, channel, opt=None):
-	payload = {
-		'channel': channel,
-	}
+# alarm cw
+def get_attachments_alarm_cw(msg):
+	to = os.environ.get('CHATWORK_TO', '')
 
-	if opt is not None:
-		payload.update(opt)
+	if len(to) > 0:
+		to += "\n"
+
+	return "{to}[code]Name: {name}\nDescription: {desc}\nstate: {state}\ndetail: {detail}[/code]".format(
+		to=to,
+		name=msg['AlarmName'],
+		desc=msg['AlarmDescription'],
+		state='{old}->{new}'.format(old=msg['OldStateValue'],new=msg['NewStateValue']),
+		detail=msg['NewStateReason'],
+	)
+
+
+# batch cw
+def get_attachments_batch_cw(msg):
+	detail = msg['detail']
+	re_colon = re.compile(r'(?:.*?):(?:.*?):(?:.*?):(?:.*?):(?:.*?):(.*)')
+	to = os.environ.get('CHATWORK_TO', '')
+
+	if len(to) > 0:
+		to += "\n"
+
+	return "{to}[code]jobName: {jobName}\nstatusReason: {statusReason}\njobQueue: {jobQueue}\njobDef: {jobDef}\ncommand: {command}\nreason: {reason}[/code]".format(
+		to=to,
+		jobName=detail['jobName'],
+		statusReason=detail['statusReason'],
+		jobQueue=re_colon.sub(r'\1', detail['jobQueue']),
+		jobDef=re_colon.sub(r'\1', detail['jobDefinition']),
+		command=str(detail['container']['command']),
+		reason=str(detail['container']['reason']),
+	)
+
+
+# slack
+def slack(opt=None):
+	url = os.environ.get('SLACK_ENDPOINT', '')
 
 	if (url):
+		payload = {
+			'channel': os.environ.get('SLACK_CHANNEL', '#general'),
+			'username': os.environ.get('SLACK_USERNAME', 'lambda'),
+			'icon_emoji': os.environ.get('SLACK_EMOJI', ':majikayo:'),
+		}
+
+		if opt is not None:
+			payload.update(opt)
+
 		try:
 			req = urllib.request.Request(
 				url=url,
@@ -133,6 +174,29 @@ def slack(url, channel, opt=None):
 			)
 			urllib.request.urlopen(req)
 		except Exception as e:
-			print('Exception:', e.args[0], e.args[1], file=sys.stderr)
+			print('Exception:', e.args, file=sys.stderr)
+		except:
+			print('Unexpected error:', sys.exc_info()[0], file=sys.stderr)
+
+
+# chatwork
+def chatwork(msg):
+	CHATWORK_KEY      = os.environ.get('CHATWORK_KEY', '')
+	CHATWORK_ENDPOINT = os.environ.get('CHATWORK_ENDPOINT', 'https://api.chatwork.com/v2')
+	CHATWORK_ROOM     = os.environ.get('CHATWORK_ROOM', '')
+
+	if (CHATWORK_KEY):
+		url = '{}/rooms/{}/messages'.format(CHATWORK_ENDPOINT, CHATWORK_ROOM)
+
+		try:
+			req = urllib.request.Request(
+				url=url,
+				data=urllib.parse.urlencode({'body':msg}).encode('utf-8'),
+				method='POST',
+				headers={'X-ChatWorkToken':CHATWORK_KEY},
+			)
+			urllib.request.urlopen(req)
+		except Exception as e:
+			print('Exception:', e.args, file=sys.stderr)
 		except:
 			print('Unexpected error:', sys.exc_info()[0], file=sys.stderr)
